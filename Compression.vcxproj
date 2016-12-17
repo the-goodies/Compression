@@ -110,6 +110,16 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="main.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="compression.h" />
+    <ClInclude Include="lib\Array.h" />
+    <ClInclude Include="lib\bitstream.h" />
+    <ClInclude Include="lib\PriorityQueue.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="taip.txt" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
