@@ -1,1 +1,386 @@
-1
+
+CS106B
+Handout 33
+Autumn 2012
+November 
+12
+th
+, 2012
+Assignment 6
+: Huffman Encoding
+Assignment was pulled together by Owen Astrachan (of Duke University) 
+and polished by Julie Zelenski.
+Huffman encoding is an example of a lossless compression algorithm that
+works 
+particularly well on text and, in fact, can be applied to any type of file. It can reduce the 
+storage required by a third or half or even more in some situations.
+You’ll
+be impressed 
+with
+the compression algorithm, and you’ll be equally impressed t
+hat you’re outfitted to 
+implement 
+the core of 
+a tool that imitates one you’re already very familiar with.
+You are to write a program that allows the user to compress and decompress files using the 
+standard Huffman algorithm for encoding and decoding.  Car
+efully read
+the
+Huffman 
+handout (Handout 34
+) for background information on compression and the specifics of the 
+algorithm.  This handout doesn't repeat that material, and instead just describes the 
+structure of the assignment.  Even so, this handout is on 
+the long side.  It preemptively 
+identifies the tough spots, but we learned during 
+pas
+t offerings that 
+those skimming the 
+handout too quickly overlook several critical details
+.  We 
+recommend a careful, thoughtful 
+reading
+, and we even marked a few sections w
+ith a large star
+TM
+to make extra special 
+certain you 
+digest
+some essential facts.
+Due: 
+Wednesday, November 28
+th
+at 5:00 p.m.
+Overview of the program structure
+Like all complex programs, development goes more smoot
+hly if the task is divided into 
+separate p
+ieces that can be developed and tested incremen
+tally.  We have already divided 
+the task up into four modules:
+•
+huffman
+—
+This module contains the 
+main
+function, and is
+handles 
+user requests to 
+compress and decompress files.  It uses an 
+Encoding
+object to bui
+ld the encoding and 
+bstream
+objects to read and write encoded bit patterns to and from disk.
+•
+pqueue
+—
+This is a generalization of 
+your
+priority queue from Assignment 4. 
+Encoding
+object
+s use priority queues
+when building an encoding tree.   We’re including a 
+template version of the 
+PQueue
+with the starter files so you don’t have to templatize 
+any priority queue data structures yourself.
+The interface is slightly different than the 
+on
+e you dealt with in Assignment 5
+, so read the 
+pqueue.h
+file.  (In particular,
+the 
+enqueue
+method takes a priority value.)
+•
+encoding
+—
+The module defines and implements a class for managing a Huffman 
+encoding.  It should have operations to build an encoding tree and map from character 
+to bit pattern and back. It also is responsible for
+reading and writing the file header 
+containing the encoding table.
+2
+•
+bstream
+—
+This class is already written for you.  It defines new stream classes with 
+specialized I/O operations to read and write single bits.
+The structure of each 
+module
+is described in m
+ore detail
+right here
+.
+Read on.
+The 
+bstream
+classes 
+—
+streams with single bit I/O 
+Let's first start off with an easy module
+—
+the 
+bstream
+module is already written for you 
+and all you need to do is use it.  It provides two new classes, 
+ibstream
+and 
+obstre
+am
+. 
+These two classes are basically identical to the standard 
+ifstream
+and 
+ofstream
+except that they add a few operations.  The new operations are listed here, and you’ll find 
+the full specification in the 
+bstream.h
+interface file.
+for 
+ibstream
+:
+int readb
+it();    
+// read a single bit from the stream
+void rewind();    
+// move back to beginning of file to read again
+long size();      
+// number of bytes in the open file
+for 
+obstream
+:
+void writebit(int bit); // write a single bit to the stream
+long size
+();            // number of bytes in the open file
+Use these new classes 
+the same way 
+you use
+ifstream
+s a
+nd 
+ofstream
+s.  Our classes 
+are 
+ifstream
+and 
+ofstream
+subclasses
+, and everything that you can use on the standard 
+classes also works for the new clas
+ses (
+<<
+and 
+>>
+, the member functions 
+get
+, 
+fail
+, 
+open
+, 
+close
+, etc.). In your program you will use 
+ibstream
+in the place of 
+ifstream
+and 
+obstream
+in place
+of 
+ofstream
+.  The new classes do everything the standard ones 
+do, along with extended functionality to 
+read and write single bits
+.
+Here is some sample code that uses the new classes:
+obstream outfile;
+outfile.open(name.c_str());
+if (outfile.fail()) e
+rror("Can't open output file!");
+outfile << 134;
+outfile.put('A');
+outfile.writebit(0);
+outfile.writebit(1
+);
+outfile.close();
+ibstream infile;
+infile.open(name.c_str());
+if (infile.fail()) e
+rror("Can't open input file!");
+int num;
+infile >> num;
+cout << "read " << num << " " << char(infile.get()) << " and " 
+<< infile.readbit() << infile.readbit() << end
+l;
+infile.close();
+3
+You don’t need to do anything for this module.
+Y
+ou’re 
+just
+a client of its two classes. 
+The 
+PQueue
+template
+While building an optimal encoding tree, you’ll use 
+a
+priority queue to 
+process a collection 
+of nodes and partial encoding tr
+ees
+.  At each stage yo
+u extract the two minimum 
+trees
+, 
+combine them into a new tree, and insert the new root node back onto t
+he queue for later 
+processing.
+Encoding
+builds and manages character bit
+-
+pattern encoding
+The 
+Encoding
+class manages an encoding t
+ree 
+mapping
+each character to a unique bit 
+pattern
+encoding
+.  The class 
+should implement
+the
+classic
+Huffman algorithm for building 
+an optimal encoding tree for an input file.  
+The class should also include functionality to 
+manipulate a zipped file’s heade
+r, which should 
+codify
+the encoding tree used during 
+comp
+ression in such a way that the same encoding tree is easily rehydrated come 
+decompression time.
+Here is our suggested starting point for the interface of the 
+Encoding
+class:
+class Encoding {
+publi
+c:
+Encoding();
+~Encoding();
+void compress(ibstream& infile, obstream& outfile);
+void decompress(ibstream& infile, obstream& outfile);
+private:
+// data members and helper functions
+};
+You do not have to follow our suggested interface relig
+iously, but it should give you an 
+idea of what the 
+public
+operations might look like.  The data managed by this class is 
+internally stored in the form of an encoding tree as described in the data compression 
+handout.  Building this tree comes from analyzin
+g the input file to count the characters and 
+then constructing the optimal tree via the Huffman algorithm. It’s your job to design the 
+data structure and any helper functions required to support the 
+public
+operations.
+T
+he 
+Encoding
+class
+should 
+also 
+mainta
+in a secondary structure for quick lookup
+, instead 
+of 
+having to hunt through the encoding tree to find the character of interest.  A
+n
+effective 
+strategy is to create a 
+string
+array 
+with entries for each character and assign the bit 
+pattern for each charact
+er by tracing out the paths in the encoding tree.  Then when you 
+need to look up the encoding for a particular character, you have immediate access to it. 
+4
+Going from bit pattern to character is a matter of tracing your way down the encoding tree 
+making l
+eft and right turns on the 0 and 1's to find the character at the end (or possibly to 
+discover that the bit pattern isn’t valid for the given encoding).  Given that your encoding 
+should already maintain an encoding tree, you will need no additional structu
+re to support 
+converting a bit pattern to its char.
+The class also needs to
+publish information about
+the encoding table to the compressed file 
+and later read that information to recreate the encoding tree 
+during decompression
+.  The 
+encoding is unique to 
+each file, so 
+we must store information about the encoding 
+tree in a
+file header so we know how to re
+-
+interpret the compressed bit stream during a 
+decompression operation.
+There are many options you have for reading and writing the encoding table.  You co
+uld 
+store the table at the head of the file in a long, human
+-
+readable string format using the 
+ASCII characters 
+'0'
+and 
+'1'
+, one character entry per each line, like this:
+h = 01
+a = 000
+p = 10
+y = 1111
+... 
+Reading this back in would allow you to re
+create the tree path by path.  You could have a 
+line for every character in the ASCII set; characters that are unused would have an empty 
+bit pattern.  Or you could conserve space by only listing those characters that appear in the 
+encoding.  In such a cas
+e you must record a number that tells how many entries are in the 
+table or put some sort of sentinel or marker at the end so you know when you have 
+processed them all.
+As an alternative to storing sequences of ASCII 
+'0'
+and 
+'1'
+characters for the bit patt
+erns, 
+you could store just the character frequency counts and rebuild the tree again from those 
+counts in order to decompress.  Again we might include the counts for all characters 
+(including those that are zero) or optimize to only record those that are n
+on
+-
+zero.  Here is 
+how we might encode the non
+-
+zero character counts for the 
+"happy
+hip
+hop"
+string (the 
+7 at the front says there are 7 entries to follow
+—
+6 alphabetic characters, and the space 
+character):
+7
+h3 a1 p4 y1  2 i1 o1
+If you’re feeling really 
+inventive, you can go even further in your quest to save space. For 
+example, it’s possible to store the bit patterns by writing a sequence of single bits or you 
+can devise a means to efficiently dehydrate the tree itself and store it. 
