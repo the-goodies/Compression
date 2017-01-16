@@ -1,11 +1,12 @@
 ﻿#include <experimental/filesystem> // std::experimental::filesystem, kas leidžia gauti programos vardą be kelio ir plėtinio
-//#include "lib/bitstream.h"
-#include "lib/Array.h"
+#include <Windows.h>
 #include "compression.h"
 #include <cstdio>
 #include <fstream>
 #include <string>
+#include <chrono> // skaiciuoti laika
 #include <cstdlib> // exit, EXIT_FAILURE
+#include <random>
 
 using std::cout;
 using std::endl;
@@ -73,6 +74,42 @@ static fileContents readEntireFileToMemory(const char* fileName)
 	return result;
 }
 
+// kad nesimatytu kai vedamas password
+void disableConsoleOutput(bool disable = true)
+{
+	HANDLE hStdin = GetStdHandle(STD_INPUT_HANDLE);
+	DWORD mode;
+	GetConsoleMode(hStdin, &mode);
+
+	if (disable) mode &= ~ENABLE_ECHO_INPUT;
+	else		 mode |= ENABLE_ECHO_INPUT;
+
+	SetConsoleMode(hStdin, mode);
+}
+
+const u8 BOM = 0b01010100;
+
+
+static void xor_buffer(u8* inBuffer, s64 size, std::mt19937_64 & cipher)
+{
+	/*for (s64 i = 0; i < size; i += 8)
+	{
+
+		inBuffer
+	}*/
+}
+
+static std::mt19937_64 requestPassword()
+{
+	string password;
+	cout << "Įveskite slaptažodį: ";
+	disableConsoleOutput(true);
+	std::getline(cin, password);
+	disableConsoleOutput(false);
+	std::seed_seq seed(password.begin(), password.end());
+	std::mt19937_64 cipher(seed);
+	return cipher;
+}
 
 
 int main(int argCount, char** args)
@@ -85,6 +122,9 @@ int main(int argCount, char** args)
 	string ProgramName = Program.filename().string();
 
 
+	using get_time = std::chrono::steady_clock;
+	auto start_time = get_time::now();
+
  	if (argCount == 2)
 	{
 		if (strcmp(args[1], "/?") == 0) issami_instrukcija(ProgramName);
@@ -95,24 +135,57 @@ int main(int argCount, char** args)
 		char* command = args[1];
 		char* inFileName = args[2];
 		char* outFileName = args[3];
+
+
+		filenames files = { inFileName, outFileName };
 		fileContents inFile = readEntireFileToMemory(inFileName);
 		fileContents outFile;
-		outFile.size = inFile.size * 2;
-		outFile.memory = (u8*)malloc((std::size_t)outFile.size);
-
-
+		
 		if (strcmp(command, "compress") == 0 || strcmp(command, "-") == 0)
 		{
-			s64 compressed_size = compress(inFile.memory, inFile.size, outFile.memory, outFile.size);
+			outFile.size = inFile.size * 2;
+			outFile.memory = (u8*)malloc((std::size_t)outFile.size);
+
+			s64 byte_pos = 0;
+			writeByte(BOM, outFile.memory, byte_pos, 0);
+			writeFourBytes((u32)inFile.size, outFile.memory, byte_pos, 0);
+
+			s64 compressed_size = compress(inFile.memory, inFile.size, outFile.memory + 5, outFile.size - 5, files);
+			s64 outFile_final_size = compressed_size + 5;
 			std::ofstream file(outFileName, std::fstream::binary | std::fstream::out);
-			file.write((char*)outFile.memory, compressed_size);
+			file.write((char*)outFile.memory, outFile_final_size);
 			file.close();
 		}
 		else if (strcmp(command, "decompress") == 0 || strcmp(command, "+") == 0)
 		{
-			s64 compressed_size = decompress(inFile.memory, inFile.size, outFile.memory, outFile.size);
+			s64 byte_pos = 0;
+			u8 first_byte = readByte(inFile.memory, byte_pos, 0);
+			if (first_byte != BOM && first_byte != BOM + 1)
+			{
+				cout << "Duotas failas " << inFileName << " nebuvo suspaustas su šia programa\nNeįmanoma jo išskleisti";
+				exit(EXIT_FAILURE);
+			}
+
+			if (first_byte == BOM + 1)
+			{
+				std::mt19937_64 cipher = requestPassword();
+
+				xor_buffer(inFile.memory + 1, inFile.size - 1, cipher);
+
+				u8 second_byte = readByte(inFile.memory, byte_pos, 0);
+				if (second_byte != BOM)
+				{
+					cout << "Neteisingas slaptažodis";
+					exit(EXIT_FAILURE);
+				}
+			}
+
+			outFile.size = readFourBytes(inFile.memory, byte_pos, 0);
+			outFile.memory = (u8*)malloc((std::size_t)outFile.size);
+
+			s64 decompressed_size = decompress(inFile.memory + 5, inFile.size - 5, outFile.memory, outFile.size, files);
 			std::ofstream file(outFileName, std::fstream::binary | std::fstream::out);
-			file.write((char*)outFile.memory, compressed_size);
+			file.write((char*)outFile.memory, decompressed_size);
 			file.close();
 		}
 		else
@@ -123,13 +196,61 @@ int main(int argCount, char** args)
 	}
 	else if (argCount == 5)
 	{
+		char* command = args[1];
+		char* encrypt = args[4];
+		char* inFileName = args[2];
+		char* outFileName = args[3];
 
-	}
-	else if (argCount == 6)
-	{
-
-	}
-	else naudojimo_instrukcija(ProgramName);
+		if (strcmp(encrypt, "/encrypt") != 0)
+		{
+			naudojimo_instrukcija(ProgramName);
+			exit(EXIT_FAILURE);
+		}
 	
-	system("pause");
+
+		filenames files = { inFileName, outFileName };
+		fileContents inFile = readEntireFileToMemory(inFileName);
+		fileContents outFile;
+
+		if (strcmp(command, "compress") == 0 || strcmp(command, "-") == 0)
+		{
+			outFile.size = inFile.size * 2;
+			outFile.memory = (u8*)malloc((std::size_t)outFile.size);
+
+			s64 byte_pos = 0;
+			writeByte(BOM + 1, outFile.memory, byte_pos, 0);
+			writeFourBytes((u32)inFile.size, outFile.memory, byte_pos, 0);
+
+			std::mt19937_64 cipher = requestPassword();
+
+			s64 compressed_size = compress(inFile.memory, inFile.size, outFile.memory + 5, outFile.size - 5, files);
+			s64 outFile_final_size = compressed_size + 5;
+
+			xor_buffer(outFile.memory + 1, outFile_final_size - 1, cipher);
+
+			std::ofstream file(outFileName, std::fstream::binary | std::fstream::out);
+			file.write((char*)outFile.memory, outFile_final_size);
+			file.close();
+		}
+		else if (strcmp(command, "decompress") == 0 || strcmp(command, "+") == 0)
+		{
+			cout << "Ar norėjot suspausti " << inFileName << " failą ? " << " su /encrypt funkcija failo išskleisti negalima";
+			exit(EXIT_FAILURE);
+		}
+		else
+		{
+			naudojimo_instrukcija(ProgramName);
+			exit(EXIT_FAILURE);
+		}
+	}
+	else
+	{
+		naudojimo_instrukcija(ProgramName);
+		exit(EXIT_FAILURE);
+	}
+
+	// spausdinti kiek laiko praejo
+	auto end_time = get_time::now();
+	auto time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+	cout << "Užtruko " << std::setprecision(2) << time / 1000.0f << " sekundes" << endl;
 }
