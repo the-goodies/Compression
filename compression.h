@@ -5,6 +5,10 @@
 #include "lib/PriorityQueue.h"
 
 
+static inline void setBit(u64 & byte, u8 pos) { byte |= ((u64)1 << pos); }
+static inline void clearBit(u64 & byte, u8 pos) { byte &= ~((u64)1 << pos); }
+static inline bool getBit(u64 byte, u8 pos) { return (byte & ((u64)1 << pos)) != 0; }
+
 // writes a bit to given outBuffer and advances bit_pos and byte_pos if needed
 static inline void writeBit(bool bit, u8* outBuffer, s64 & byte_pos, u8 & bit_pos)
 {
@@ -23,9 +27,6 @@ static inline void writeBit(bool bit, u8* outBuffer, s64 & byte_pos, u8 & bit_po
 	}
 }
 
-static inline void setBit(u64 & byte, u8 pos) { byte |= ((u64)1 << pos); }
-static inline void clearBit(u64 & byte, u8 pos) { byte &= ~((u64)1 << pos); }
-static inline bool getBit(u64 byte, u8 pos) { return (byte & ((u64)1 << pos)) != 0; }
 
 // writes a byte to a given outBuffer and advances byte_pos
 // bit_pos is needed, since it's not necessary 0
@@ -61,15 +62,6 @@ inline static bool readBit(u8* inBuffer, s64 & byte_pos, u8 & bit_pos)
 		bit_pos = 0;
 		byte_pos += 1;
 	}
-	return bit;
-}
-
-// returns next bit within given inBuffer, true if 1 else 0, also advances bit_pos and byte_pos if needed
-inline static bool readBit(u8 byte, u8 & bit_pos)
-{
-	bool bit = (byte & (1 << bit_pos)) != 0;
-	bit_pos += 1;
-	if (bit_pos == 8) bit_pos = 0;
 	return bit;
 }
 
@@ -125,6 +117,7 @@ struct ArrayNode
 	// in array, virtual_pos is increased when passing to the next child only if it is not a leaf
 	u16 virtual_pos;
 
+	bool isLeaf() { return virtual_pos == 0; }
 	ArrayNode(): symbol(0), virtual_pos(0) { /* empty */ }
 	ArrayNode(u8 s, u16 virtual_pos): symbol(s), virtual_pos(virtual_pos) { /* empty */ }
 };
@@ -132,8 +125,8 @@ struct ArrayNode
 
 static ArrayNode HuffmanArray[512];
 // optimization so that when decompressing and using huffmanTree in a tight loop
-// array will be used instread due to cache misses of typical binary tree
-//(after testing both): 4x speed improvement using HuffmanArray instead of typical binary tree
+// array will be used instead due to cache misses of typical binary tree
+// (after testing both): 4x speed improvement using HuffmanArray instead of typical binary tree
 static u16 transferHuffmanTreeToArray(HuffmanNode* tree, u16 real_pos = 1, u16 virtual_pos = 1)
 {
 	HuffmanArray[real_pos] = ArrayNode(tree->symbol, virtual_pos);
@@ -171,7 +164,7 @@ static HuffmanNode* buildHuffmanTree(s32* freqTable)
 	PriorityQueue<HuffmanNode*, compare_huffmanNodes> HuffmanForest;
 	for (s32 s = 0; s < 256; ++s)
 		if (freqTable[s] > 0)
-			HuffmanForest.insert(new HuffmanNode(s, freqTable[s]));
+			HuffmanForest.insert(new HuffmanNode((u8)s, freqTable[s]));
 
 	// special case if HuffmanForest only has one element
 	// need to add another random one, which will not be used anyway
@@ -231,7 +224,7 @@ struct codeword
 };
 
 // makes a symbol table maping symbols to codewords: used for encoding a file
-static void buildEncodingMap(HuffmanNode* tree, codeword st[256], u64 code[4], u8 limit)
+static void buildEncodingMap(HuffmanNode* tree, codeword st[256], u64 code[4], u8 limit = 0)
 {
 	// base case
 	if (tree->isLeaf())
@@ -267,37 +260,32 @@ struct filenames
 struct statistics
 {
 	// track progress
-	u8* bit_pos;
 	s64* in_byte_pos;
 	s64* out_byte_pos;
 	// after byte_pos reaches this point, computing is almost over
 	s64 last_byte_pos;
-	char* command;
 	filenames files;
 };
 
 
 // print to console info on compression/decompression progress while computing
-static void printProgressBar(statistics stats)
+static void printProgressBar(statistics stats, bool compressing)
 {
 	float inFile_size_bytes = (float)stats.last_byte_pos;
-	float outFile_size_bytes = 1.0f;
 	char byte_prefix[5] = ""; // mega, kilo or just bytes
 	if (inFile_size_bytes > 1024 * 1024)
 	{
 		strcpy_s(byte_prefix, 5, "mega");
 		inFile_size_bytes /= (1024 * 1024);
-		outFile_size_bytes /= (1024 * 1024);
 	}
 	else if (inFile_size_bytes > 1024)
 	{
 		strcpy_s(byte_prefix, 5, "kilo");
 		inFile_size_bytes /= 1024;
-		outFile_size_bytes /= 1024;
 	}
 
-	std::cout << stats.command << " failą " << stats.files.inFileName << " (" << 
-		std::setprecision(inFile_size_bytes <= 1024 ? 0 : 3) << inFile_size_bytes << " " << byte_prefix << "baitai)\n";
+	std::cout << (compressing ? "Suspaudžia" : "Išskleidžia") << " failą " << stats.files.inFileName << " (" << 
+		std::setprecision(stats.last_byte_pos <= 1024 ? 0 : 3) << inFile_size_bytes << " " << byte_prefix << "baitai)\n";
 
 	// progress bar and percentage printing
 	while (*(stats.in_byte_pos) + 1 < stats.last_byte_pos)
@@ -320,12 +308,23 @@ static void printProgressBar(statistics stats)
 
 	// print success and final bytes of output file
 	char operation[30];
-	if (strcmp(stats.command, "Suspaudžia") == 0) strcpy_s(operation, 30, " sėkmingai suspaustas į ");
+	if (compressing) strcpy_s(operation, 30, " sėkmingai suspaustas į ");
 	else										  strcpy_s(operation, 30, " sėkmingai išskleistas į ");
 
-	outFile_size_bytes *= (float)*(stats.out_byte_pos);
+	float outFile_size_bytes = (float)*(stats.out_byte_pos);
+	char out_byte_prefix[5] = "";
+	if (outFile_size_bytes > 1024 * 1024)
+	{
+		strcpy_s(out_byte_prefix, 5, "mega");
+		outFile_size_bytes /= (1024 * 1024);
+	}
+	else if (outFile_size_bytes > 1024)
+	{
+		strcpy_s(out_byte_prefix, 5, "kilo");
+		outFile_size_bytes /= 1024;
+	}
 	std::cout << stats.files.inFileName << operation << stats.files.outFileName << " (" << 
-		std::setprecision(outFile_size_bytes <= 1024 ? 0 : 3) << outFile_size_bytes << " " << byte_prefix << "baitai)\n";
+		std::setprecision((float)*stats.out_byte_pos <= 1024 ? 0 : 3) << outFile_size_bytes << " " << out_byte_prefix << "baitai)\n";
 
 	std::cout.flush();
 }
@@ -339,8 +338,8 @@ s64 compress(u8* inBuffer, s64 inBuffer_size, u8* outBuffer, s64 outBuffer_size,
 	HuffmanNode* root = buildHuffmanTree(freqTable);
 
 	codeword st[256]; // symbol table maping symbols to codewords
-	u64 code[4];
-	buildEncodingMap(root, st, code, 0);
+	u64 temp_code[4];
+	buildEncodingMap(root, st, temp_code, 0);
 
 	s64 out_byte_pos = 0;
 	u8 out_bit_pos = 0;
@@ -357,10 +356,9 @@ s64 compress(u8* inBuffer, s64 inBuffer_size, u8* outBuffer, s64 outBuffer_size,
 
 
 	s64 in_byte_pos = 0;
-	u8 in_bit_pos = 0;
 	// create a thread to print progress bar
-	std::thread stats_thread(printProgressBar, statistics {&in_bit_pos, &in_byte_pos, &out_byte_pos,
-							inBuffer_size, "Suspaudžia", files});
+	std::thread stats_thread(printProgressBar, statistics {&in_byte_pos, &out_byte_pos,
+							inBuffer_size, files}, true /* compressing */);
 	// use symbol table maping to encode a file
 	u8 byte;
 	if (out_bit_pos == 0) byte = 0;
@@ -368,17 +366,7 @@ s64 compress(u8* inBuffer, s64 inBuffer_size, u8* outBuffer, s64 outBuffer_size,
 	for (u32 i = 0; i < size; ++i)
 	{
 		// readByte
-		u8 symbol;
-		if (in_bit_pos == 0) symbol = inBuffer[in_byte_pos++];
-		else
-		{
-			// get remaining bits from this byte
-			symbol = inBuffer[in_byte_pos++] >> in_bit_pos;
-			// and the rest from the next byte
-			symbol |= ((inBuffer[in_byte_pos] & ((1 << in_bit_pos) - 1)) << (8 - in_bit_pos));;
-		}
-
-		codeword code = st[symbol];
+		codeword code = st[inBuffer[in_byte_pos++]];
 		const u8 code_size = code.limit;
 		for (u8 j = 0; j < code_size; ++j)
 		{
@@ -399,8 +387,6 @@ s64 compress(u8* inBuffer, s64 inBuffer_size, u8* outBuffer, s64 outBuffer_size,
 				outBuffer[out_byte_pos++] = byte;
 				byte = 0;
 			}
-
-			// writeBit(bit, outBuffer, out_byte_pos, out_bit_pos);
 		}		
 		if (out_bit_pos != 0) outBuffer[out_byte_pos] = byte;
 	}
@@ -420,16 +406,15 @@ s64 decompress(u8* inBuffer, s64 inBuffer_size, u8* outBuffer, s64 outBuffer_siz
 	u32 size = readFourBytes(inBuffer, in_byte_pos, in_bit_pos);
 
 	s64 out_byte_pos = 0;
-	u8 out_bit_pos = 0;
 	// create a thread to print progress bar
-	std::thread stats_thread(printProgressBar, statistics{ &in_bit_pos, &in_byte_pos, &out_byte_pos,
-							inBuffer_size, "Išskleidžia", files});
+	std::thread stats_thread(printProgressBar, statistics{&in_byte_pos, &out_byte_pos,
+							inBuffer_size, files}, false /* compressing */);
 	// decode encoded stream
 	u8 byte = inBuffer[in_byte_pos];
 	for (u32 pos = 0; pos < size; ++pos)
 	{
 		u16 real_pos = 1;
-		while (HuffmanArray[real_pos].virtual_pos != 0)
+		while (!HuffmanArray[real_pos].isLeaf())
 		{	
 			// getBit
 			bool bit = (byte & (1 << in_bit_pos)) != 0;
@@ -443,20 +428,11 @@ s64 decompress(u8* inBuffer, s64 inBuffer_size, u8* outBuffer, s64 outBuffer_siz
 			if (bit) real_pos = HuffmanArray[real_pos].virtual_pos * 2 + 1;
 			else	 real_pos = HuffmanArray[real_pos].virtual_pos * 2;
 		}
-		
 		// writeByte
-		u8 symbol = HuffmanArray[real_pos].symbol;
-		if (out_bit_pos == 0) outBuffer[out_byte_pos++] = symbol;
-		else
-		{
-			// fill the remaining of byte and overwrite the last byte in a outBuffer with it
-			outBuffer[out_byte_pos++] |= ((symbol & ((1 << (8 - out_bit_pos)) - 1)) << out_bit_pos);
-			// put the rest of bits to a new byte
-			outBuffer[out_byte_pos] = (symbol >> (8 - out_bit_pos));
-		}
+		outBuffer[out_byte_pos++] = HuffmanArray[real_pos].symbol;
 	}
 	stats_thread.join();
-	return (out_bit_pos == 0 ? out_byte_pos : out_byte_pos + 1);
+	return out_byte_pos;
 }
 
 #endif

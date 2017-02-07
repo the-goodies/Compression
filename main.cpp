@@ -23,7 +23,6 @@ static void naudojimo_instrukcija(string ProgramName)
 	cout << "  Daugiau info: " << ProgramName << " /?\n\n";
 }
 
-
 static void issami_instrukcija(string ProgramName)
 {
 	cout << "Naudojimas:\n\n";
@@ -92,11 +91,20 @@ const u8 BOM = 0b01010100;
 
 static void xor_buffer(u8* inBuffer, s64 size, std::mt19937_64 & cipher)
 {
-	/*for (s64 i = 0; i < size; i += 8)
+	u64* buffer = (u64*)inBuffer;
+	for (s64 i = 0; i < size / 8; ++i)
 	{
+		*buffer++ ^= cipher();
+	}
 
-		inBuffer
-	}*/
+		
+	u64 last_cipher = cipher();
+	inBuffer = (u8*)buffer;
+	size = size % 8;
+	for (s64 i = 0; i < size; ++i)
+	{
+		*inBuffer++ ^= *(((u8*)(&last_cipher)) + i);
+	}
 }
 
 static std::mt19937_64 requestPassword()
@@ -106,6 +114,7 @@ static std::mt19937_64 requestPassword()
 	disableConsoleOutput(true);
 	std::getline(cin, password);
 	disableConsoleOutput(false);
+	cout << "\n";
 	std::seed_seq seed(password.begin(), password.end());
 	std::mt19937_64 cipher(seed);
 	return cipher;
@@ -121,13 +130,15 @@ int main(int argCount, char** args)
 	Program.replace_extension(); // pasalina .exe extension
 	string ProgramName = Program.filename().string();
 
-
 	using get_time = std::chrono::steady_clock;
-	auto start_time = get_time::now();
 
  	if (argCount == 2)
 	{
-		if (strcmp(args[1], "/?") == 0) issami_instrukcija(ProgramName);
+		if (strcmp(args[1], "/?") == 0)
+		{
+			issami_instrukcija(ProgramName);
+			exit(EXIT_FAILURE);
+		}
 		else naudojimo_instrukcija(ProgramName);
 	}
 	else if (argCount == 4)
@@ -150,11 +161,17 @@ int main(int argCount, char** args)
 			writeByte(BOM, outFile.memory, byte_pos, 0);
 			writeFourBytes((u32)inFile.size, outFile.memory, byte_pos, 0);
 
+			auto start_time = get_time::now();
 			s64 compressed_size = compress(inFile.memory, inFile.size, outFile.memory + 5, outFile.size - 5, files);
 			s64 outFile_final_size = compressed_size + 5;
 			std::ofstream file(outFileName, std::fstream::binary | std::fstream::out);
 			file.write((char*)outFile.memory, outFile_final_size);
 			file.close();
+
+			auto end_time = get_time::now();
+			// spausdinti kiek laiko praejo
+			auto time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+			cout << "Užtruko " << std::setprecision(2) << time / 1000.0f << " sekundes" << endl;
 		}
 		else if (strcmp(command, "decompress") == 0 || strcmp(command, "+") == 0)
 		{
@@ -166,8 +183,10 @@ int main(int argCount, char** args)
 				exit(EXIT_FAILURE);
 			}
 
+			bool encrypted = false;
 			if (first_byte == BOM + 1)
 			{
+
 				std::mt19937_64 cipher = requestPassword();
 
 				xor_buffer(inFile.memory + 1, inFile.size - 1, cipher);
@@ -178,15 +197,22 @@ int main(int argCount, char** args)
 					cout << "Neteisingas slaptažodis";
 					exit(EXIT_FAILURE);
 				}
+				encrypted = true;
 			}
 
 			outFile.size = readFourBytes(inFile.memory, byte_pos, 0);
 			outFile.memory = (u8*)malloc((std::size_t)outFile.size);
 
-			s64 decompressed_size = decompress(inFile.memory + 5, inFile.size - 5, outFile.memory, outFile.size, files);
+			auto start_time = get_time::now();
+			s64 decompressed_size = decompress(inFile.memory +(encrypted ? 6: 5), inFile.size - (encrypted ? 6 : 5), outFile.memory, outFile.size, files);
 			std::ofstream file(outFileName, std::fstream::binary | std::fstream::out);
 			file.write((char*)outFile.memory, decompressed_size);
 			file.close();
+
+			auto end_time = get_time::now();
+			// spausdinti kiek laiko praejo
+			auto time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+			cout << "Užtruko " << std::setprecision(2) << time / 1000.0f << " sekundes" << endl;
 		}
 		else
 		{
@@ -219,18 +245,25 @@ int main(int argCount, char** args)
 
 			s64 byte_pos = 0;
 			writeByte(BOM + 1, outFile.memory, byte_pos, 0);
+			writeByte(BOM, outFile.memory, byte_pos, 0);
 			writeFourBytes((u32)inFile.size, outFile.memory, byte_pos, 0);
 
 			std::mt19937_64 cipher = requestPassword();
 
-			s64 compressed_size = compress(inFile.memory, inFile.size, outFile.memory + 5, outFile.size - 5, files);
-			s64 outFile_final_size = compressed_size + 5;
+			auto start_time = get_time::now();
+			s64 compressed_size = compress(inFile.memory, inFile.size, outFile.memory + 6, outFile.size - 6, files);
+			s64 outFile_final_size = compressed_size + 6;
 
 			xor_buffer(outFile.memory + 1, outFile_final_size - 1, cipher);
 
 			std::ofstream file(outFileName, std::fstream::binary | std::fstream::out);
 			file.write((char*)outFile.memory, outFile_final_size);
 			file.close();
+
+			auto end_time = get_time::now();
+			// spausdinti kiek laiko praejo
+			auto time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+			cout << "Užtruko " << std::setprecision(2) << time / 1000.0f << " sekundes" << endl;
 		}
 		else if (strcmp(command, "decompress") == 0 || strcmp(command, "+") == 0)
 		{
@@ -248,9 +281,4 @@ int main(int argCount, char** args)
 		naudojimo_instrukcija(ProgramName);
 		exit(EXIT_FAILURE);
 	}
-
-	// spausdinti kiek laiko praejo
-	auto end_time = get_time::now();
-	auto time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
-	cout << "Užtruko " << std::setprecision(2) << time / 1000.0f << " sekundes" << endl;
 }
