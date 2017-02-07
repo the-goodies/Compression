@@ -1,0 +1,40 @@
+{
+	"build_systems":
+	[
+		{
+			"cmd":
+			[
+				"build.bat"
+			],
+			"file_regex": "^\\s*(.*[.][h|hh|c|cc|cpp|cp|c++])[(](\\d+)[)]",
+			"name": "Compression",
+			"working_dir": "$project_path",
+			"variants":
+			[
+				{
+					"cmd": ["run.bat"],
+					"name": "Run"
+				}
+			]
+		}
+	],
+	"folders":
+	[
+		{
+			"file_exclude_patterns":
+			[
+				".*",
+				"*.vcxproj*",
+				"*.sln",
+				"*.ilk"
+			],
+			"folder_exclude_patterns":
+			[
+				"Debug",
+				"Release",
+				".vs"
+			],
+			"path": "."
+		}
+	]
+}
